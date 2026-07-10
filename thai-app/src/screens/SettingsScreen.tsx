@@ -69,8 +69,8 @@ export function SettingsScreen() {
 
       <div className="rounded-xl border border-amber-900 bg-amber-950/40 p-4 text-xs text-amber-300">
         {uiLang === 'ru'
-          ? 'Стартовый словарь и тональная разметка составлены по стандартным правилам тайской орфографии и общеизвестным учебным примерам. Перед использованием в ответственных ситуациях рекомендуем сверить произношение с носителем языка.'
-          : 'Le lexique de départ et le marquage tonal suivent les règles orthographiques thaïes standard et des exemples pédagogiques bien connus. Avant un usage important, faites vérifier la prononciation par un locuteur natif.'}
+          ? 'Куррированный разговорник (карточки, уроки, тренажёр тонов) сверен вручную по стандартным правилам тайской орфографии. Для фраз вне разговорника перевод и тональная разметка на экране «Перевод» строятся автоматически (правила чтения + онлайн-перевод) и не проверены человеком — для редких слов возможны ошибки в тоне.'
+          : 'Le recueil de phrases (cartes, leçons, entraîneur de tons) est vérifié manuellement selon les règles orthographiques thaïes standard. Pour les phrases hors recueil, la traduction et le marquage tonal sur l’écran « Traduction » sont générés automatiquement (règles de lecture + traduction en ligne) et non vérifiés par un humain — des erreurs de ton sont possibles sur des mots rares.'}
       </div>
     </div>
   )

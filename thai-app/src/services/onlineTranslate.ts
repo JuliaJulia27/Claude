@@ -29,9 +29,18 @@ export interface OnlineTranslationResult {
   provider: 'google' | 'mymemory'
 }
 
+const PROVIDER_TIMEOUT_MS = 6000
+
+/** fetch с таймаутом: медленный/зависший провайдер не должен блокировать весь пайплайн. */
+function fetchWithTimeout(url: string, timeoutMs = PROVIDER_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(timer))
+}
+
 async function translateViaGoogle(text: string, lang: 'ru' | 'fr'): Promise<string> {
   const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${lang}&tl=th&dt=t&q=${encodeURIComponent(text)}`
-  const res = await fetch(url)
+  const res = await fetchWithTimeout(url)
   if (!res.ok) throw new Error(`google http ${res.status}`)
   const data = await res.json()
   const chunks = data?.[0]
@@ -43,7 +52,7 @@ async function translateViaGoogle(text: string, lang: 'ru' | 'fr'): Promise<stri
 
 async function translateViaMyMemory(text: string, lang: 'ru' | 'fr'): Promise<string> {
   const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${lang}|th`
-  const res = await fetch(url)
+  const res = await fetchWithTimeout(url)
   if (!res.ok) throw new Error(`mymemory http ${res.status}`)
   const data = await res.json()
   const thai: unknown = data?.responseData?.translatedText

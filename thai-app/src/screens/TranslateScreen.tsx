@@ -1,34 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { searchPhrases, segmentSentence, type SentenceSegment } from '../services/dictionarySearch'
+import { searchPhrases } from '../services/dictionarySearch'
 import { isSpeechInputSupported, startSpeechInput, type SpeechInputController } from '../services/speechInput'
-import { translateOnline, OnlineTranslateError, type OnlineTranslationResult } from '../services/onlineTranslate'
-import { speakThai, isTtsSupported } from '../services/ttsPlayer'
+import { translateOnline, OnlineTranslateError } from '../services/onlineTranslate'
+import { readThai } from '../services/thaiReading'
 import { PhraseDisplay } from '../components/PhraseDisplay'
 import type { Phrase } from '../domain/types'
 import { useSettings } from '../hooks/useSettings'
 
 const ONLINE_ERROR_MESSAGES: Record<string, string> = {
-  offline: 'Нет подключения к интернету — онлайн-перевод недоступен.',
+  offline: 'Нет подключения к интернету — перевод произвольных фраз недоступен, но разговорник и уроки работают офлайн.',
   network: 'Не удалось связаться с сервисом перевода. Проверьте соединение и попробуйте снова.',
-  quota: 'Превышен дневной лимит бесплатных онлайн-переводов. Попробуйте позже.',
+  quota: 'Превышен дневной лимит бесплатных переводов. Попробуйте позже.',
   empty: 'Сервис не вернул перевод для этой фразы.',
 }
 
-type SegmentGroup = { type: 'phrase'; phrase: Phrase } | { type: 'unknown'; words: string[] }
-
-function groupSegments(segments: SentenceSegment[]): SegmentGroup[] {
-  const groups: SegmentGroup[] = []
-  for (const seg of segments) {
-    if (seg.type === 'unknown') {
-      const last = groups[groups.length - 1]
-      if (last?.type === 'unknown') last.words.push(seg.text)
-      else groups.push({ type: 'unknown', words: [seg.text] })
-    } else {
-      groups.push({ type: 'phrase', phrase: seg.phrase })
-    }
-  }
-  return groups
-}
+// Локальную куррированную фразу считаем достаточно надёжной, чтобы не ходить
+// в сеть, если совпадение точное или очень близкое (например, опечатка).
+const LOCAL_MATCH_THRESHOLD = 0.85
+const DEBOUNCE_MS = 500
 
 export function TranslateScreen() {
   const [query, setQuery] = useState('')
@@ -69,44 +58,60 @@ export function TranslateScreen() {
     controllerRef.current = controller
   }
 
-  // Короткие запросы (до 3 слов) ищем как единую фразу — с допуском на опечатки
-  // и частичные совпадения. Более длинные предложения сразу разбиваем на
-  // фрагменты, чтобы не терять слова, не вошедшие ни в одну известную фразу.
-  const wordCount = query.trim() ? query.trim().split(/\s+/).length : 0
-  const results = useMemo(() => (wordCount > 3 ? [] : searchPhrases(query, lang)), [query, lang, wordCount])
-  const segments = useMemo(
-    () => (results.length === 0 && query.trim() ? segmentSentence(query, lang) : []),
-    [results, query, lang],
-  )
-  // соседние нераспознанные слова группируем в одно сообщение
-  const groupedSegments = useMemo(() => groupSegments(segments), [segments])
-
-  const [onlineResult, setOnlineResult] = useState<OnlineTranslationResult | null>(null)
-  const [onlineLoading, setOnlineLoading] = useState(false)
-  const [onlineError, setOnlineError] = useState<string | null>(null)
-  const [onlineErrorDetail, setOnlineErrorDetail] = useState<string | null>(null)
-
-  useEffect(() => {
-    setOnlineResult(null)
-    setOnlineError(null)
-    setOnlineErrorDetail(null)
+  // 1) Сначала — локальный куррированный словарь (офлайн, тон проверен вручную).
+  const localMatch = useMemo(() => {
+    const hits = searchPhrases(query, lang, 1)
+    const hit = hits[0]
+    if (hit && hit.score >= LOCAL_MATCH_THRESHOLD) return hit.phrase
+    return null
   }, [query, lang])
 
-  async function handleOnlineTranslate() {
-    setOnlineLoading(true)
-    setOnlineError(null)
-    setOnlineErrorDetail(null)
-    try {
-      const result = await translateOnline(query, lang)
-      setOnlineResult(result)
-    } catch (err) {
-      const kind = err instanceof OnlineTranslateError ? err.kind : 'network'
-      setOnlineError(ONLINE_ERROR_MESSAGES[kind])
-      setOnlineErrorDetail(err instanceof OnlineTranslateError ? (err.detail ?? null) : String(err))
-    } finally {
-      setOnlineLoading(false)
+  // 2) Если локального совпадения нет — автоматически переводим через интернет
+  // и сами строим тональную транскрипцию по правилам тайской орфографии.
+  const [autoPhrase, setAutoPhrase] = useState<Phrase | null>(null)
+  const [autoLoading, setAutoLoading] = useState(false)
+  const [autoError, setAutoError] = useState<string | null>(null)
+  const [autoErrorDetail, setAutoErrorDetail] = useState<string | null>(null)
+  const requestIdRef = useRef(0)
+
+  useEffect(() => {
+    setAutoPhrase(null)
+    setAutoError(null)
+    setAutoErrorDetail(null)
+
+    if (localMatch || !query.trim()) {
+      setAutoLoading(false)
+      return
     }
-  }
+
+    const myRequestId = ++requestIdRef.current
+    setAutoLoading(true)
+    const timer = setTimeout(async () => {
+      try {
+        const result = await translateOnline(query, lang)
+        if (requestIdRef.current !== myRequestId) return // запрос устарел (пользователь печатает дальше)
+        const syllables = readThai(result.thai)
+        setAutoPhrase({
+          id: 'auto',
+          category: 'basics',
+          ru: lang === 'ru' ? query : '',
+          fr: lang === 'fr' ? query : '',
+          thai: result.thai,
+          syllables,
+          difficulty: 1,
+        })
+      } catch (err) {
+        if (requestIdRef.current !== myRequestId) return
+        const kind = err instanceof OnlineTranslateError ? err.kind : 'network'
+        setAutoError(ONLINE_ERROR_MESSAGES[kind])
+        setAutoErrorDetail(err instanceof OnlineTranslateError ? (err.detail ?? null) : String(err))
+      } finally {
+        if (requestIdRef.current === myRequestId) setAutoLoading(false)
+      }
+    }, DEBOUNCE_MS)
+
+    return () => clearTimeout(timer)
+  }, [query, lang, localMatch])
 
   return (
     <div className="mx-auto max-w-lg space-y-4 px-4 py-5">
@@ -148,82 +153,40 @@ export function TranslateScreen() {
       {listening && <p className="text-xs text-emerald-400">Слушаю…</p>}
       {speechError && <p className="rounded-lg bg-red-950 px-3 py-2 text-xs text-red-300">{speechError}</p>}
 
-      <p className="text-xs text-slate-500">
-        Сначала поиск идёт по локальному куррированному разговорнику (офлайн, с проверенной тональной разметкой).
-        Если точной фразы нет, приложение подсветит известные фрагменты, а остальное можно перевести через интернет.
-      </p>
+      {!query.trim() && (
+        <p className="text-xs text-slate-500">
+          Введите любую фразу — приложение само найдёт её в разговорнике или переведёт и разметит тоны
+          автоматически.
+        </p>
+      )}
 
-      <div className="space-y-3">
-        {results.map((r) => (
-          <div key={r.phrase.id}>
-            <PhraseDisplay phrase={r.phrase} />
-            {r.matchType !== 'exact' && (
-              <p className="mt-1 text-[11px] text-slate-500">
-                {r.matchType === 'substring' ? 'Частичное совпадение' : 'Похожее совпадение'}
-              </p>
-            )}
-          </div>
-        ))}
-      </div>
+      {localMatch && <PhraseDisplay phrase={localMatch} />}
 
-      {groupedSegments.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-sm text-slate-400">Точной фразы нет, вот перевод по найденным фрагментам:</p>
-          {groupedSegments.map((g, i) =>
-            g.type === 'phrase' ? (
-              <PhraseDisplay key={i} phrase={g.phrase} />
-            ) : (
-              <p key={i} className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-500">
-                «{g.words.join(' ')}» — нет в словаре
-              </p>
-            ),
+      {!localMatch && autoLoading && (
+        <div className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900 px-4 py-3 text-sm text-slate-400">
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-600 border-t-emerald-400" />
+          Переводим и определяем тоны…
+        </div>
+      )}
+
+      {!localMatch && !autoLoading && autoError && (
+        <div className="rounded-lg bg-red-950 px-3 py-2 text-xs text-red-300">
+          <p>{autoError}</p>
+          {autoErrorDetail && (
+            <details className="mt-1 text-red-400">
+              <summary className="cursor-pointer">Техническая причина</summary>
+              <p className="mt-1 break-words">{autoErrorDetail}</p>
+            </details>
           )}
         </div>
       )}
 
-      {results.length === 0 && query.trim() && (
-        <div className="space-y-2 border-t border-slate-800 pt-4">
-          <button
-            onClick={handleOnlineTranslate}
-            disabled={onlineLoading}
-            className="w-full rounded-lg bg-sky-500 py-2.5 text-sm font-semibold text-sky-950 disabled:opacity-60"
-          >
-            {onlineLoading ? 'Переводим…' : '🌐 Перевести всю фразу через интернет'}
-          </button>
-
-          {onlineError && (
-            <div className="rounded-lg bg-red-950 px-3 py-2 text-xs text-red-300">
-              <p>{onlineError}</p>
-              {onlineErrorDetail && (
-                <details className="mt-1 text-red-400">
-                  <summary className="cursor-pointer">Техническая причина</summary>
-                  <p className="mt-1 break-words">{onlineErrorDetail}</p>
-                </details>
-              )}
-            </div>
-          )}
-
-          {onlineResult && (
-            <div className="rounded-xl border border-sky-900 bg-sky-950/30 p-4">
-              <div className="flex items-center justify-between gap-2">
-                <p className="thai-script text-2xl text-slate-100">{onlineResult.thai}</p>
-                {isTtsSupported() && (
-                  <button
-                    onClick={() => speakThai(onlineResult.thai)}
-                    aria-label="Прослушать произношение"
-                    className="shrink-0 rounded-full bg-slate-800 p-2.5 text-lg hover:bg-slate-700 active:scale-95"
-                  >
-                    🔊
-                  </button>
-                )}
-              </div>
-              <p className="mt-3 text-xs text-sky-300">
-                Онлайн-перевод ({onlineResult.provider === 'google' ? 'Google Translate' : 'MyMemory'}).
-                Кириллическая транскрипция и тоны для этой фразы не проверены — ориентируйтесь на озвучку и, по
-                возможности, сверьте с носителем языка.
-              </p>
-            </div>
-          )}
+      {!localMatch && autoPhrase && (
+        <div>
+          <PhraseDisplay phrase={autoPhrase} showMeaning={false} />
+          <p className="mt-1 text-[11px] text-slate-500">
+            Автоматический перевод и тональная разметка (не сверено вручную с носителем языка).
+          </p>
         </div>
       )}
     </div>
