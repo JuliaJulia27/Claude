@@ -84,21 +84,25 @@ export function TranslateScreen() {
   const [onlineResult, setOnlineResult] = useState<OnlineTranslationResult | null>(null)
   const [onlineLoading, setOnlineLoading] = useState(false)
   const [onlineError, setOnlineError] = useState<string | null>(null)
+  const [onlineErrorDetail, setOnlineErrorDetail] = useState<string | null>(null)
 
   useEffect(() => {
     setOnlineResult(null)
     setOnlineError(null)
+    setOnlineErrorDetail(null)
   }, [query, lang])
 
   async function handleOnlineTranslate() {
     setOnlineLoading(true)
     setOnlineError(null)
+    setOnlineErrorDetail(null)
     try {
       const result = await translateOnline(query, lang)
       setOnlineResult(result)
     } catch (err) {
       const kind = err instanceof OnlineTranslateError ? err.kind : 'network'
       setOnlineError(ONLINE_ERROR_MESSAGES[kind])
+      setOnlineErrorDetail(err instanceof OnlineTranslateError ? (err.detail ?? null) : String(err))
     } finally {
       setOnlineLoading(false)
     }
@@ -187,7 +191,17 @@ export function TranslateScreen() {
             {onlineLoading ? 'Переводим…' : '🌐 Перевести всю фразу через интернет'}
           </button>
 
-          {onlineError && <p className="rounded-lg bg-red-950 px-3 py-2 text-xs text-red-300">{onlineError}</p>}
+          {onlineError && (
+            <div className="rounded-lg bg-red-950 px-3 py-2 text-xs text-red-300">
+              <p>{onlineError}</p>
+              {onlineErrorDetail && (
+                <details className="mt-1 text-red-400">
+                  <summary className="cursor-pointer">Техническая причина</summary>
+                  <p className="mt-1 break-words">{onlineErrorDetail}</p>
+                </details>
+              )}
+            </div>
+          )}
 
           {onlineResult && (
             <div className="rounded-xl border border-sky-900 bg-sky-950/30 p-4">
@@ -204,8 +218,9 @@ export function TranslateScreen() {
                 )}
               </div>
               <p className="mt-3 text-xs text-sky-300">
-                Онлайн-перевод (сервис MyMemory). Кириллическая транскрипция и тоны для этой фразы не проверены —
-                ориентируйтесь на озвучку и, по возможности, сверьте с носителем языка.
+                Онлайн-перевод ({onlineResult.provider === 'google' ? 'Google Translate' : 'MyMemory'}).
+                Кириллическая транскрипция и тоны для этой фразы не проверены — ориентируйтесь на озвучку и, по
+                возможности, сверьте с носителем языка.
               </p>
             </div>
           )}
