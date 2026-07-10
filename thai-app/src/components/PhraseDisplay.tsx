@@ -7,10 +7,11 @@ import { useSettings } from '../hooks/useSettings'
 interface PhraseDisplayProps {
   phrase: Phrase
   showMeaning?: boolean
+  showOriginalText?: boolean
   compact?: boolean
 }
 
-export function PhraseDisplay({ phrase, showMeaning = true, compact = false }: PhraseDisplayProps) {
+export function PhraseDisplay({ phrase, showMeaning = true, showOriginalText = false, compact = false }: PhraseDisplayProps) {
   const uiLang = useSettings((s) => s.uiLang)
   const meaning = uiLang === 'ru' ? phrase.ru : phrase.fr
 
@@ -41,6 +42,14 @@ export function PhraseDisplay({ phrase, showMeaning = true, compact = false }: P
       </div>
       {showMeaning && <p className="mt-3 text-slate-300">{meaning}</p>}
       {phrase.notes && <p className="mt-1 text-xs text-slate-500">{phrase.notes}</p>}
+      {showOriginalText && (
+        <div className="mt-3 border-t border-slate-800 pt-3">
+          <p className="text-[10px] uppercase tracking-wide text-slate-500">
+            {uiLang === 'ru' ? 'Оригинальный перевод' : 'Traduction originale'}
+          </p>
+          <p className="thai-script mt-1 text-lg text-slate-300">{phrase.thai}</p>
+        </div>
+      )}
     </div>
   )
 }

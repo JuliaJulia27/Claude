@@ -220,8 +220,16 @@ export function readThai(text: string): Syllable[] {
     let final: string | null = null
     if (i < chars.length && isConsonant(chars[i]) && chars[i] !== 'อ' && chars[i] !== 'ห') {
       const after = chars[i + 1]
+      const afterAfter = chars[i + 2]
+      // после кандидата идёт р/л/в, а за ним — гласная/конец слова: значит это
+      // не финаль, а кластер начала следующего слога (например ก перед ลับ в "จะกลับ")
+      const afterLooksLikeClusterStart =
+        after !== undefined &&
+        'รลว'.includes(after) &&
+        (afterAfter === undefined || ABOVE_VOWEL_SIGNS.has(afterAfter) || BELOW_VOWEL_SIGNS.has(afterAfter) || TONE_MARKS.has(afterAfter) || FOLLOWING_VOWEL_CHARS.has(afterAfter) || LEADING_VOWELS.has(afterAfter) || !isConsonant(afterAfter))
       const afterStartsNewSyllable =
-        after !== undefined && (ABOVE_VOWEL_SIGNS.has(after) || BELOW_VOWEL_SIGNS.has(after) || FOLLOWING_VOWEL_CHARS.has(after))
+        after !== undefined &&
+        (ABOVE_VOWEL_SIGNS.has(after) || BELOW_VOWEL_SIGNS.has(after) || FOLLOWING_VOWEL_CHARS.has(after) || afterLooksLikeClusterStart)
       const afterIsToneMark = after !== undefined && TONE_MARKS.has(after)
       const rejectDueToToneMark = afterIsToneMark && tail.consumed > 0
       if (!afterStartsNewSyllable && !rejectDueToToneMark) {

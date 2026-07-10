@@ -183,7 +183,7 @@ export function TranslateScreen() {
 
       {!localMatch && autoPhrase && (
         <div>
-          <PhraseDisplay phrase={autoPhrase} showMeaning={false} />
+          <PhraseDisplay phrase={autoPhrase} showMeaning={false} showOriginalText />
           <p className="mt-1 text-[11px] text-slate-500">
             Автоматический перевод и тональная разметка (не сверено вручную с носителем языка).
           </p>
