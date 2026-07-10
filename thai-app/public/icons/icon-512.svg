@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="80" fill="#0f172a"/>
+  <text x="256" y="298" text-anchor="middle" font-family="'Noto Sans Thai', sans-serif" font-size="172" font-weight="700" fill="#e2e8f0">ไทย</text>
+  <path d="M106 368 C 186 390 326 400 406 352" fill="none" stroke="#22c55e" stroke-width="22" stroke-linecap="round"/>
+</svg>
