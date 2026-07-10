@@ -3,7 +3,7 @@ import type { Phrase } from '../domain/types'
 
 export type SourceLang = 'ru' | 'fr'
 
-function normalize(s: string): string {
+export function normalize(s: string): string {
   return s
     .toLowerCase()
     .normalize('NFKD')
@@ -65,11 +65,57 @@ export function searchPhrases(query: string, lang: SourceLang, limit = 8): Searc
   return results.slice(0, limit)
 }
 
-/** Разбивка фразы на слова с попыткой найти перевод для каждого слова отдельно. */
-export function wordByWordBreakdown(query: string, lang: SourceLang): { word: string; match: Phrase | null }[] {
-  const words = normalize(query).split(/\s+/).filter(Boolean)
-  return words.map((word) => {
-    const hits = searchPhrases(word, lang, 1)
-    return { word, match: hits[0]?.matchType !== 'fuzzy' ? hits[0]?.phrase ?? null : null }
-  })
+export type SentenceSegment =
+  | { type: 'phrase'; phrase: Phrase; text: string }
+  | { type: 'unknown'; text: string }
+
+/**
+ * Разбивает произвольное предложение на фрагменты, "жадно" находя внутри него
+ * целые фразы из словаря (например, «спасибо» и «где туалет» внутри одного
+ * длинного предложения), а не только отдельные слова. Несовпавшие слова
+ * возвращаются как есть.
+ */
+export function segmentSentence(query: string, lang: SourceLang): SentenceSegment[] {
+  const tokens = normalize(query).split(/\s+/).filter(Boolean)
+  if (tokens.length === 0) return []
+
+  const phraseByNormText = new Map<string, Phrase>()
+  let maxWords = 1
+  for (const phrase of PHRASES) {
+    const norm = normalize(lang === 'ru' ? phrase.ru : phrase.fr)
+    if (!norm) continue
+    if (!phraseByNormText.has(norm)) phraseByNormText.set(norm, phrase)
+    maxWords = Math.max(maxWords, norm.split(/\s+/).length)
+  }
+
+  const segments: SentenceSegment[] = []
+  let i = 0
+  while (i < tokens.length) {
+    const maxWindow = Math.min(maxWords, tokens.length - i)
+    let matched = false
+    for (let window = maxWindow; window >= 2; window--) {
+      const chunk = tokens.slice(i, i + window).join(' ')
+      const phrase = phraseByNormText.get(chunk)
+      if (phrase) {
+        segments.push({ type: 'phrase', phrase, text: chunk })
+        i += window
+        matched = true
+        break
+      }
+    }
+    if (matched) continue
+
+    // Для одиночного оставшегося слова допускаем только точное совпадение:
+    // подстрочный/нечёткий поиск на коротких словах (предлоги, союзы вроде «и»)
+    // даёт случайные ложные срабатывания (например, «и» — подстрока слова «три»).
+    const word = tokens[i]
+    const exact = phraseByNormText.get(word)
+    if (exact) {
+      segments.push({ type: 'phrase', phrase: exact, text: word })
+    } else {
+      segments.push({ type: 'unknown', text: word })
+    }
+    i += 1
+  }
+  return segments
 }
