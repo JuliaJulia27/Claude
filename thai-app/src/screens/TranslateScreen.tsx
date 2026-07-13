@@ -2,16 +2,31 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { searchPhrases } from '../services/dictionarySearch'
 import { isSpeechInputSupported, startSpeechInput, type SpeechInputController } from '../services/speechInput'
 import { translateOnline, OnlineTranslateError } from '../services/onlineTranslate'
+import { translateWord, splitIntoWords } from '../services/wordTranslate'
 import { readThai } from '../services/thaiReading'
+import { withPoliteParticle } from '../services/politeness'
 import { PhraseDisplay } from '../components/PhraseDisplay'
+import { ToneCurve } from '../components/ToneCurve'
 import type { Phrase } from '../domain/types'
-import { useSettings } from '../hooks/useSettings'
+import { useSettings, type Gender } from '../hooks/useSettings'
 
 const ONLINE_ERROR_MESSAGES: Record<string, string> = {
   offline: 'Нет подключения к интернету — перевод произвольных фраз недоступен, но разговорник и уроки работают офлайн.',
   network: 'Не удалось связаться с сервисом перевода. Проверьте соединение и попробуйте снова.',
   quota: 'Превышен дневной лимит бесплатных переводов. Попробуйте позже.',
   empty: 'Сервис не вернул перевод для этой фразы.',
+}
+
+const GENDER_TOGGLE: { value: Gender; icon: string; label: string }[] = [
+  { value: 'male', icon: '♂', label: 'ครับ' },
+  { value: 'female', icon: '♀', label: 'ค่ะ/คะ' },
+  { value: 'unspecified', icon: '—', label: 'без частицы' },
+]
+
+interface WordGlossEntry {
+  word: string
+  phrase: Phrase | null
+  loading: boolean
 }
 
 // Локальную куррированную фразу считаем достаточно надёжной, чтобы не ходить
@@ -23,6 +38,8 @@ export function TranslateScreen() {
   const [query, setQuery] = useState('')
   const lang = useSettings((s) => s.translateSourceLang)
   const setLang = useSettings((s) => s.setTranslateSourceLang)
+  const globalGender = useSettings((s) => s.gender)
+  const [gender, setGender] = useState<Gender>(globalGender)
 
   const [listening, setListening] = useState(false)
   const [speechError, setSpeechError] = useState<string | null>(null)
@@ -113,20 +130,66 @@ export function TranslateScreen() {
     return () => clearTimeout(timer)
   }, [query, lang, localMatch])
 
+  // 3) Словарик по словам — независимо от основного результата, для фраз из
+  // нескольких слов показываем перевод каждого слова отдельно.
+  const [glossary, setGlossary] = useState<WordGlossEntry[]>([])
+  const glossaryRequestIdRef = useRef(0)
+
+  useEffect(() => {
+    const words = splitIntoWords(query)
+    if (words.length < 2) {
+      setGlossary([])
+      return
+    }
+    const myId = ++glossaryRequestIdRef.current
+    setGlossary(words.map((word) => ({ word, phrase: null, loading: true })))
+    const timer = setTimeout(async () => {
+      const results = await Promise.all(words.map((word) => translateWord(word, lang)))
+      if (glossaryRequestIdRef.current !== myId) return
+      setGlossary(words.map((word, i) => ({ word, phrase: results[i], loading: false })))
+    }, DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [query, lang])
+
+  const displayLocalMatch = useMemo(
+    () => (localMatch ? withPoliteParticle(localMatch, gender, query) : null),
+    [localMatch, gender, query],
+  )
+  const displayAutoPhrase = useMemo(
+    () => (autoPhrase ? withPoliteParticle(autoPhrase, gender, query) : null),
+    [autoPhrase, gender, query],
+  )
+
   return (
     <div className="mx-auto max-w-lg space-y-4 px-4 py-5">
-      <div className="flex gap-2">
-        {(['ru', 'fr'] as const).map((l) => (
-          <button
-            key={l}
-            onClick={() => setLang(l)}
-            className={`rounded-full px-3 py-1 text-sm font-medium ${
-              lang === l ? 'bg-emerald-500 text-emerald-950' : 'bg-slate-800 text-slate-300'
-            }`}
-          >
-            {l === 'ru' ? 'Русский' : 'Français'}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex gap-2">
+          {(['ru', 'fr'] as const).map((l) => (
+            <button
+              key={l}
+              onClick={() => setLang(l)}
+              className={`rounded-full px-3 py-1 text-sm font-medium ${
+                lang === l ? 'bg-emerald-500 text-emerald-950' : 'bg-slate-800 text-slate-300'
+              }`}
+            >
+              {l === 'ru' ? 'Русский' : 'Français'}
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-1" role="group" aria-label="Пол говорящего для вежливой частицы">
+          {GENDER_TOGGLE.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => setGender(opt.value)}
+              title={opt.label}
+              className={`rounded-full px-2.5 py-1 text-sm font-medium ${
+                gender === opt.value ? 'bg-sky-500 text-sky-950' : 'bg-slate-800 text-slate-400'
+              }`}
+            >
+              {opt.icon}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="flex gap-2">
@@ -156,11 +219,11 @@ export function TranslateScreen() {
       {!query.trim() && (
         <p className="text-xs text-slate-500">
           Введите любую фразу — приложение само найдёт её в разговорнике или переведёт и разметит тоны
-          автоматически.
+          автоматически. Значками ♂/♀ сверху справа можно включить вежливую частицу ครับ/ค่ะ в конце фразы.
         </p>
       )}
 
-      {localMatch && <PhraseDisplay phrase={localMatch} />}
+      {displayLocalMatch && <PhraseDisplay phrase={displayLocalMatch} />}
 
       {!localMatch && autoLoading && (
         <div className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900 px-4 py-3 text-sm text-slate-400">
@@ -181,12 +244,38 @@ export function TranslateScreen() {
         </div>
       )}
 
-      {!localMatch && autoPhrase && (
+      {!localMatch && displayAutoPhrase && (
         <div>
-          <PhraseDisplay phrase={autoPhrase} showMeaning={false} showOriginalText />
+          <PhraseDisplay phrase={displayAutoPhrase} showMeaning={false} showOriginalText />
           <p className="mt-1 text-[11px] text-slate-500">
             Автоматический перевод и тональная разметка (не сверено вручную с носителем языка).
           </p>
+        </div>
+      )}
+
+      {glossary.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-sm text-slate-400">Перевод по словам:</p>
+          {glossary.map((entry, i) => (
+            <div key={i} className="flex items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2">
+              <span className="shrink-0 text-sm text-slate-300">{entry.word}</span>
+              {entry.loading ? (
+                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-slate-600 border-t-emerald-400" />
+              ) : entry.phrase ? (
+                <div className="flex flex-wrap justify-end gap-2">
+                  {entry.phrase.syllables.map((s, j) => (
+                    <div key={j} className="flex flex-col items-center">
+                      <ToneCurve tone={s.tone} size={16} />
+                      <span className="thai-script text-sm text-slate-200">{s.thai}</span>
+                      <span className="text-[11px] font-medium text-emerald-300">{s.cyr}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <span className="text-xs text-slate-500">нет перевода</span>
+              )}
+            </div>
+          ))}
         </div>
       )}
     </div>

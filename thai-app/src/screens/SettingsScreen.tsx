@@ -1,10 +1,18 @@
 import { useRef } from 'react'
 import { exportUserData, importUserData } from '../db/db'
-import { useSettings } from '../hooks/useSettings'
+import { useSettings, type Gender } from '../hooks/useSettings'
+
+const GENDER_OPTIONS: { value: Gender; ru: string; fr: string }[] = [
+  { value: 'male', ru: 'Мужской (ครับ)', fr: 'Homme (ครับ)' },
+  { value: 'female', ru: 'Женский (ค่ะ/คะ)', fr: 'Femme (ค่ะ/คะ)' },
+  { value: 'unspecified', ru: 'Не указывать', fr: 'Ne pas préciser' },
+]
 
 export function SettingsScreen() {
   const uiLang = useSettings((s) => s.uiLang)
   const setUiLang = useSettings((s) => s.setUiLang)
+  const gender = useSettings((s) => s.gender)
+  const setGender = useSettings((s) => s.setGender)
   const fileRef = useRef<HTMLInputElement>(null)
 
   async function handleExport() {
@@ -41,6 +49,30 @@ export function SettingsScreen() {
               }`}
             >
               {l === 'ru' ? 'Русский' : 'Français'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
+        <p className="mb-1 text-sm font-semibold">
+          {uiLang === 'ru' ? 'Ваш пол (для вежливых частиц)' : 'Votre genre (particules de politesse)'}
+        </p>
+        <p className="mb-2 text-xs text-slate-500">
+          {uiLang === 'ru'
+            ? 'На экране «Перевод» к фразе автоматически добавится ครับ (муж.) или ค่ะ/คะ (жен.).'
+            : 'Sur l’écran « Traduction », ครับ (homme) ou ค่ะ/คะ (femme) sera ajouté automatiquement à la phrase.'}
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {GENDER_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => setGender(opt.value)}
+              className={`rounded-full px-3 py-1 text-sm font-medium ${
+                gender === opt.value ? 'bg-emerald-500 text-emerald-950' : 'bg-slate-800 text-slate-300'
+              }`}
+            >
+              {uiLang === 'ru' ? opt.ru : opt.fr}
             </button>
           ))}
         </div>
