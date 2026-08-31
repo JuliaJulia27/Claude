@@ -4,6 +4,9 @@ Application web (PWA installable) pour consulter, en temps réel, les prochains
 passages des trams et bus du réseau **DiviaMobilités** (Dijon Métropole) :
 choix du mode (tram/bus), de la ligne, de l'arrêt et de la direction.
 
+**→ Tester en ligne : https://juliajulia27.github.io/Claude/divia-app/**
+(déployé automatiquement sur GitHub Pages, voir `.github/workflows/deploy-pages.yml`)
+
 ## Architecture décidée
 
 | Question | Décision |

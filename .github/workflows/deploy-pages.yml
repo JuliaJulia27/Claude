@@ -1,12 +1,15 @@
-name: Deploy Thai Tones to GitHub Pages
+name: Deploy apps to GitHub Pages
 
 on:
   push:
     branches:
+      - claude/dijon-transport-timetable-app-n31ru8
       - claude/thai-learning-app-design-p9vmed
       - main
     paths:
       - 'thai-app/**'
+      - 'divia-app/**'
+      - 'landing/**'
       - '.github/workflows/deploy-pages.yml'
   workflow_dispatch:
 
@@ -29,23 +32,42 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: thai-app/package-lock.json
+          cache-dependency-path: |
+            thai-app/package-lock.json
+            divia-app/package-lock.json
 
-      - name: Install dependencies
+      - name: Install thai-app dependencies
         working-directory: thai-app
         run: npm ci
 
-      - name: Build
+      - name: Build thai-app
         working-directory: thai-app
         run: npm run build
         env:
-          VITE_BASE_PATH: /${{ github.event.repository.name }}/
+          VITE_BASE_PATH: /${{ github.event.repository.name }}/thai-app/
+
+      - name: Install divia-app dependencies
+        working-directory: divia-app
+        run: npm ci
+
+      - name: Build divia-app
+        working-directory: divia-app
+        run: npm run build
+        env:
+          VITE_BASE_PATH: /${{ github.event.repository.name }}/divia-app/
+
+      - name: Assemble site
+        run: |
+          mkdir -p site
+          cp landing/index.html site/index.html
+          cp -r thai-app/dist site/thai-app
+          cp -r divia-app/dist site/divia-app
 
       - uses: actions/configure-pages@v5
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: thai-app/dist
+          path: site
 
   deploy:
     needs: build
